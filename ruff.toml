@@ -1,0 +1,22 @@
+# Pinned lint contract. CI uses the same ruff version (see .github/workflows/ci.yml).
+target-version = "py311"   # Hermes supports >=3.11
+line-length = 120
+
+[lint]
+extend-select = ["UP", "I", "B", "BLE", "S110", "ISC", "PL", "RUF", "RET", "N", "EXE"]
+ignore = [
+    # Hermes plugin hooks and handlers must never raise into the agent turn: a broad except that
+    # logs and degrades is the plugin contract, not an accident.
+    "BLE001",
+    "S110",
+    # Hermes plugin directories are hyphenated by convention (`delegate-lanes`); Hermes derives the
+    # import name itself.
+    "N999",
+    # Pylint complexity/size heuristics; the test file is deliberately one flat module.
+    "PLR0911", "PLR0912", "PLR0913", "PLR0915", "PLR0917", "PLR2004", "PLC0415",
+]
+
+[lint.per-file-ignores]
+# The suite records the core import failure in a module global so the re-exec path can report it.
+"tests/*" = ["PLW0603"]
+

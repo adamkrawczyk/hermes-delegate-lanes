@@ -32,16 +32,16 @@ import sqlite3
 import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 logger = logging.getLogger("delegate_lanes")
 
 CURRENT_LANE: contextvars.ContextVar = contextvars.ContextVar("delegate_lanes_current_lane", default=None)
 
 _LOCK = threading.Lock()
-_CHILD_LANE: Dict[str, Dict[str, Any]] = {}      # child_session_id -> {lane, subagent_id, parent_session_id, ts}
-_PENDING: Dict[str, List[Dict[str, Any]]] = {}    # parent_session_id -> unseen mismatch rows
-_RECENT: List[Dict[str, Any]] = []                # bounded ring of recent verdicts (for sync annotation)
+_CHILD_LANE: dict[str, dict[str, Any]] = {}      # child_session_id -> {lane, subagent_id, parent_session_id, ts}
+_PENDING: dict[str, list[dict[str, Any]]] = {}    # parent_session_id -> unseen mismatch rows
+_RECENT: list[dict[str, Any]] = []                # bounded ring of recent verdicts (for sync annotation)
 _MAX_TRACKED = 2000
 _MAX_PENDING_PARENTS = 500     # parents that never take another turn must not leak forever
 _MAX_PENDING_PER_PARENT = 20
@@ -67,10 +67,10 @@ def _norm(x: str) -> str:
 
 def _model_eq(allowed_provider: str, allowed_model: str, observed_model: str) -> bool:
     am, om, ap = _norm(allowed_model), _norm(observed_model), _norm(allowed_provider)
-    return bool(om) and (om == am or om == f"{ap}/{am}" or am == f"{ap}/{om}")
+    return bool(om) and (om in (am, f"{ap}/{am}") or am == f"{ap}/{om}")
 
 
-def route_status(allowed: Tuple[Tuple[str, str], ...], provider: str, model: str) -> Optional[bool]:
+def route_status(allowed: tuple[tuple[str, str], ...], provider: str, model: str) -> bool | None:
     """True = provably on an allowed route; False = provably not; None = cannot tell (no provider)."""
     observed_provider = _norm(provider)
     model_ok = [ap for ap, am in allowed if _model_eq(ap, am, model)]
@@ -79,11 +79,11 @@ def route_status(allowed: Tuple[Tuple[str, str], ...], provider: str, model: str
     return any(_norm(ap) == observed_provider for ap in model_ok)
 
 
-def route_matches(allowed: Tuple[Tuple[str, str], ...], provider: str, model: str) -> bool:
+def route_matches(allowed: tuple[tuple[str, str], ...], provider: str, model: str) -> bool:
     return route_status(allowed, provider, model) is True
 
 
-def usage_rows(session_id: str, db_path: Optional[Path] = None) -> List[Dict[str, Any]]:
+def usage_rows(session_id: str, db_path: Path | None = None) -> list[dict[str, Any]]:
     db = db_path or (_home() / "state.db")
     if not db.exists():
         return []
@@ -97,7 +97,7 @@ def usage_rows(session_id: str, db_path: Optional[Path] = None) -> List[Dict[str
         con.close()
 
 
-def audit_session(lane, session_id: str, db_path: Optional[Path] = None, retry: bool = False) -> Dict[str, Any]:
+def audit_session(lane, session_id: str, db_path: Path | None = None, retry: bool = False) -> dict[str, Any]:
     """Verdict for one child session: ok True / False / None (unverified: no main-loop usage rows, or
     a row whose provider is blank). retry=True re-reads after short delays when no rows exist yet."""
     rows = usage_rows(session_id, db_path)
@@ -109,9 +109,9 @@ def audit_session(lane, session_id: str, db_path: Optional[Path] = None, retry: 
             rows = usage_rows(session_id, db_path)
     allowed = lane.allowed_routes()
     status = [route_status(allowed, r["provider"], r["model"]) for r in rows]
-    bad = [r for r, st in zip(rows, status) if st is False]
+    bad = [r for r, st in zip(rows, status, strict=True) if st is False]
     if bad:
-        ok: Optional[bool] = False
+        ok: bool | None = False
     elif not rows or any(st is None for st in status):
         ok = None
     else:
@@ -127,7 +127,7 @@ def audit_session(lane, session_id: str, db_path: Optional[Path] = None, retry: 
     }
 
 
-def _append_jsonl(row: Dict[str, Any]) -> None:
+def _append_jsonl(row: dict[str, Any]) -> None:
     try:
         p = log_path()
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -141,15 +141,15 @@ class CallScope:
     """Per delegate_lane call. A mutable list survives copy_context() by reference, so children
     started by hook workers still land here."""
 
-    __slots__ = ("lane", "children")
+    __slots__ = ("children", "lane")
 
     def __init__(self, lane) -> None:
         self.lane = lane
-        self.children: List[str] = []
+        self.children: list[str] = []
 
 
-def record_child_start(child_session_id: Optional[str], child_subagent_id: Optional[str],
-                       parent_session_id: Optional[str]) -> bool:
+def record_child_start(child_session_id: str | None, child_subagent_id: str | None,
+                       parent_session_id: str | None) -> bool:
     scope = CURRENT_LANE.get()
     if scope is None or not child_session_id:
         return False
@@ -164,8 +164,8 @@ def record_child_start(child_session_id: Optional[str], child_subagent_id: Optio
     return True
 
 
-def audit_child_stop(child_session_id: Optional[str], child_status: Optional[str] = None,
-                     db_path: Optional[Path] = None) -> Optional[Dict[str, Any]]:
+def audit_child_stop(child_session_id: str | None, child_status: str | None = None,
+                     db_path: Path | None = None) -> dict[str, Any] | None:
     if not child_session_id:
         return None
     with _LOCK:
@@ -190,7 +190,7 @@ def audit_child_stop(child_session_id: Optional[str], child_status: Optional[str
     return verdict
 
 
-def _queue_pending(parent: str, verdict: Dict[str, Any]) -> None:
+def _queue_pending(parent: str, verdict: dict[str, Any]) -> None:
     """Caller holds _LOCK. Bounded per parent and in parent count (oldest parents evicted first)."""
     if parent not in _PENDING and len(_PENDING) >= _MAX_PENDING_PARENTS:
         oldest = sorted(_PENDING, key=lambda k: _PENDING[k][0].get("ts", 0) if _PENDING[k] else 0)
@@ -201,12 +201,12 @@ def _queue_pending(parent: str, verdict: Dict[str, Any]) -> None:
     del rows[:-_MAX_PENDING_PER_PARENT]
 
 
-def take_pending(parent_session_id: Optional[str]) -> List[Dict[str, Any]]:
+def take_pending(parent_session_id: str | None) -> list[dict[str, Any]]:
     with _LOCK:
         return _PENDING.pop(parent_session_id or "", [])
 
 
-def recent_for(child_session_ids: List[str]) -> List[Dict[str, Any]]:
+def recent_for(child_session_ids: list[str]) -> list[dict[str, Any]]:
     want = set(child_session_ids)
     with _LOCK:
         return [v for v in _RECENT if v.get("child_session_id") in want]

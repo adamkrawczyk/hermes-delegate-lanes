@@ -26,9 +26,10 @@ from __future__ import annotations
 import logging
 import os
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from typing import Any
 
 logger = logging.getLogger("delegate_lanes")
 
@@ -45,27 +46,27 @@ class Lane:
     provider: str
     model: str
     use_for: str = ""
-    fallbacks: Tuple[Tuple[str, str], ...] = ()
+    fallbacks: tuple[tuple[str, str], ...] = ()
     base_url: str = ""
     api_key_env: str = ""
     api_mode: str = ""
     source: str = "lanes"
 
-    def allowed_routes(self) -> Tuple[Tuple[str, str], ...]:
+    def allowed_routes(self) -> tuple[tuple[str, str], ...]:
         """(provider, model) pairs a child of this lane may legitimately run on."""
-        return ((self.provider, self.model),) + tuple(self.fallbacks)
+        return ((self.provider, self.model), *self.fallbacks)
 
     def label(self) -> str:
         return f"{self.provider}/{self.model}"
 
-    def credentials_cfg(self, environ: Optional[Mapping[str, str]] = None) -> Dict[str, Any]:
+    def credentials_cfg(self, environ: Mapping[str, str] | None = None) -> dict[str, Any]:
         """The per-call routing owner for delegate_task(credentials_cfg=...).
 
         Shape matches the `delegation` config section, which is what
         tools.delegate_tool_config._resolve_delegation_credentials reads. The fallback chain is ALWAYS
         set explicitly (possibly []), so a lane never borrows the parent's or the global chain.
         """
-        cfg: Dict[str, Any] = {
+        cfg: dict[str, Any] = {
             "provider": self.provider,
             "model": self.model,
             "fallback_providers": [{"provider": p, "model": m} for p, m in self.fallbacks],
@@ -88,7 +89,7 @@ class LaneConfigError(ValueError):
     pass
 
 
-def _env_get(key: str, environ: Optional[Mapping[str, str]] = None) -> Optional[str]:
+def _env_get(key: str, environ: Mapping[str, str] | None = None) -> str | None:
     """Read a lane's api_key_env. Explicit mapping wins (tests). Otherwise the PROFILE-SCOPED reader
     hermes_cli.config.get_env_value: on the multiplexed gateway raw os.environ is process-global and
     may hold another profile's value; get_env_value is scope-checked and
@@ -104,11 +105,11 @@ def _env_get(key: str, environ: Optional[Mapping[str, str]] = None) -> Optional[
 
 @dataclass
 class LaneTable:
-    lanes: Dict[str, Lane] = field(default_factory=dict)
-    errors: List[str] = field(default_factory=list)
-    warnings: List[str] = field(default_factory=list)
+    lanes: dict[str, Lane] = field(default_factory=dict)
+    errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
-    def names(self) -> List[str]:
+    def names(self) -> list[str]:
         return sorted(self.lanes)
 
 
@@ -117,7 +118,7 @@ def _slug(model: str) -> str:
     return re.sub(r"[^a-z0-9_-]+", "-", base).strip("-")[:32] or "lane"
 
 
-def _read_profile_model(hermes_home: Path, profile: str) -> Tuple[str, str, Dict[str, Any]]:
+def _read_profile_model(hermes_home: Path, profile: str) -> tuple[str, str, dict[str, Any]]:
     try:  # Hermes's own YAML layer (ruamel); PyYAML is NOT a Hermes dependency
         from hermes_yaml import safe_load
     except ImportError:  # pragma: no cover - very old cores only
@@ -135,7 +136,7 @@ def _read_profile_model(hermes_home: Path, profile: str) -> Tuple[str, str, Dict
     return str(model.get("provider") or "").strip(), str(model.get("default") or "").strip(), model
 
 
-def _parse_fallbacks(name: str, raw: Any, table: LaneTable) -> Tuple[Tuple[str, str], ...]:
+def _parse_fallbacks(name: str, raw: Any, table: LaneTable) -> tuple[tuple[str, str], ...]:
     if raw in (None, []):
         return ()
     if not isinstance(raw, list):
@@ -151,7 +152,7 @@ def _parse_fallbacks(name: str, raw: Any, table: LaneTable) -> Tuple[Tuple[str, 
 
 
 def _build_lane(name: str, spec: Mapping[str, Any], source: str, hermes_home: Path, table: LaneTable,
-                allowed_keys: set) -> Optional[Lane]:
+                allowed_keys: set) -> Lane | None:
     if not LANE_NAME_RE.match(name):
         table.errors.append(f"lane name {name!r} must match {LANE_NAME_RE.pattern}")
         return None

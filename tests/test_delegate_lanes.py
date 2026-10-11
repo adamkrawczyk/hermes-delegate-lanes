@@ -28,6 +28,7 @@ import threading
 import traceback
 from pathlib import Path
 from types import SimpleNamespace
+from typing import ClassVar
 
 PLUGIN_DIR = Path(__file__).resolve().parent.parent
 _REEXEC_FLAG = "DELEGATE_LANES_REEXECED"
@@ -45,7 +46,7 @@ if os.environ.get("HERMES_CORE_DIR"):
     # Enter a candidate tree exactly like the real launcher: hermes_bootstrap relaunches under that
     # tree's managed interpreter and activates its dependency environment. Importing tools.* first
     # makes the tree relaunch mid-import WITHOUT activation (measured: base python, no ruamel).
-    import hermes_bootstrap  # noqa: F401,E402
+    import hermes_bootstrap  # noqa: F401
 
 
 _IMPORT_ERROR = None
@@ -54,8 +55,8 @@ _IMPORT_ERROR = None
 def _core_importable() -> bool:
     global _IMPORT_ERROR
     try:
-        import tools.delegate_tool  # noqa: F401
         import agent.tool_guardrails  # noqa: F401
+        import tools.delegate_tool  # noqa: F401
         return True
     except Exception as exc:  # keep the reason: "cannot import" without it is undebuggable
         _IMPORT_ERROR = exc
@@ -69,7 +70,7 @@ def _live_gateway_python() -> list:
     """The environment the RUNNING gateway maps: the core that matters right now."""
     try:
         pid = subprocess.run(["systemctl", "--user", "show", "-p", "MainPID", "--value", "hermes-gateway"],
-                             capture_output=True, text=True, timeout=5).stdout.strip()
+                             capture_output=True, text=True, timeout=5, check=False).stdout.strip()
         if pid and pid != "0":
             import re
             maps = Path(f"/proc/{pid}/maps").read_text(errors="replace")
@@ -94,7 +95,7 @@ def _reexec_under_runtime() -> None:
     if env.get("HERMES_CORE_DIR"):
         probe = f"import sys; sys.path.insert(0, {env['HERMES_CORE_DIR']!r}); " + probe
     for py in cands:
-        if subprocess.run([py, "-c", probe], capture_output=True, env=env).returncode == 0:
+        if subprocess.run([py, "-c", probe], capture_output=True, env=env, check=False).returncode == 0:
             env[_REEXEC_FLAG] = "1"
             env.pop("PYTHONPATH", None)
             if os.environ.get("DL_DEBUG"):
@@ -298,6 +299,7 @@ def t_cap_mutation():
 @check("contract: deadline exemption is looked up at call time and includes delegate_lane")
 def t_deadline():
     import inspect
+
     import agent.tool_executor as te
     contract.reattach(P.TOOL)
     assert P.TOOL in te._SEQUENTIAL_DEADLINE_EXEMPT_TOOLS
@@ -323,7 +325,7 @@ def t_contract_seam_moved():
 
 # ----------------------------------------------------------------------------- end-to-end route
 class _FakeChild:
-    instances = []
+    instances: ClassVar[list] = []
 
     def __init__(self, **kw):
         self.kw = kw
@@ -336,7 +338,6 @@ class _FakeChild:
     def __getattr__(self, item):  # tolerate any other attribute core touches
         if item.startswith("__"):
             raise AttributeError(item)
-        return None
 
 
 def _fake_parent(depth=1):
@@ -354,11 +355,11 @@ def _fake_parent(depth=1):
 def _run_lane(lane_name, table, parent, credentials_override=None, resolver=None):
     """Drive the REAL handler -> delegate_task -> credential resolution -> child construction,
     with only the model-calling child replaced and hooks routed to the plugin."""
-    import hermes_cli.lifecycle as lifecycle
     import hermes_cli.runtime_provider as rp
     import run_agent
     import tools.delegate_tool as dt
     from agent.subagent_lifecycle import bind_subagent_parent
+    from hermes_cli import lifecycle
 
     def fake_resolve(requested=None, target_model=None, **_):
         return {"provider": requested, "api_key": f"key-{requested}", "base_url": f"https://{requested}.example/v1",
@@ -827,7 +828,7 @@ def main() -> int:
         try:
             fn()
             print(f"  [OK ] {name}")
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             failed += 1
             print(f"  [FAIL] {name}: {type(exc).__name__}: {exc}")
             traceback.print_exc(limit=4)

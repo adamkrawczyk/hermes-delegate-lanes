@@ -32,7 +32,6 @@ from __future__ import annotations
 
 import inspect
 import logging
-from typing import Dict, List
 
 logger = logging.getLogger("delegate_lanes")
 
@@ -144,7 +143,7 @@ def _reattach_guardrail_sets(tool: str) -> str:
 
 
 # ----------------------------------------------------------------------------- public
-def reattach(tool: str, owner: str = "default") -> List[str]:
+def reattach(tool: str, owner: str = "default") -> list[str]:
     """Apply every re-attachment (idempotent); raise ContractError on the first missing seam."""
     import agent.tool_guardrails as g
 
@@ -193,7 +192,7 @@ def detach(tool: str, owner: str = "default") -> bool:
     return True
 
 
-def verify(tool: str) -> Dict[str, bool]:
+def verify(tool: str) -> dict[str, bool]:
     """Read-only check that every re-attachment is currently in effect (cheap: run every turn)."""
     import agent.tool_executor as te
     import agent.tool_guardrails as g

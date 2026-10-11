@@ -17,7 +17,7 @@ import json
 import logging
 import time
 import uuid
-from typing import Any, Dict, List
+from typing import Any
 
 from . import audit, contract
 from .lanes import LaneConfigError, LaneTable, describe, load_lanes, verify_resolvable
@@ -28,7 +28,7 @@ TOOL = "delegate_lane"
 ALLOWED_TASK_KEYS = ("goal", "context", "output_schema", "images")
 # One module copy per gateway profile scope; OWNER identifies this copy in the core-side refcount.
 OWNER = f"delegate-lanes:{uuid.uuid4().hex[:12]}"
-_STATE: Dict[str, Any] = {"table": None, "contract": [], "contract_ok": False}
+_STATE: dict[str, Any] = {"table": None, "contract": [], "contract_ok": False}
 
 
 def _err(msg: str, **extra: Any) -> str:
@@ -43,7 +43,7 @@ def _clean_tasks(tasks: Any):
             pass
     if not isinstance(tasks, list) or not tasks:
         return None, None, "tasks must be a non-empty array of {goal, context?, output_schema?, images?}"
-    clean: List[Dict[str, Any]] = []
+    clean: list[dict[str, Any]] = []
     dropped: set = set()
     for i, t in enumerate(tasks):
         if not isinstance(t, dict) or not str(t.get("goal") or "").strip():
@@ -53,7 +53,7 @@ def _clean_tasks(tasks: Any):
     return clean, sorted(dropped), None
 
 
-def handle(args: Dict[str, Any], **_kw: Any) -> str:
+def handle(args: dict[str, Any], **_kw: Any) -> str:
     table: LaneTable = _STATE["table"]
     if table is None or not table.lanes:
         return _err("delegate_lane has no configured lanes on this profile.")
@@ -97,7 +97,7 @@ def handle(args: Dict[str, Any], **_kw: Any) -> str:
         return raw
     if not isinstance(out, dict):
         return raw
-    info: Dict[str, Any] = {
+    info: dict[str, Any] = {
         "name": lane.name,
         "route": lane.label(),
         "fallbacks": [f"{p}/{m}" for p, m in lane.fallbacks],
@@ -119,7 +119,7 @@ def handle(args: Dict[str, Any], **_kw: Any) -> str:
     return json.dumps(out, ensure_ascii=False)
 
 
-def _schema(table: LaneTable) -> Dict[str, Any]:
+def _schema(table: LaneTable) -> dict[str, Any]:
     return {
         "name": TOOL,
         "description": (
@@ -182,9 +182,9 @@ def _on_subagent_stop(**kw: Any) -> None:
 
 
 def _mismatch_notice(pending) -> str:
-    lines = ["[delegate-lanes ROUTE MISMATCH] A lane child did NOT run on its lane's provider/model (verified "
-             "against state.db usage). Treat its result as coming from the observed model, and tell the user if "
-             "the route mattered (cost, privacy, review independence):"]
+    lines = [("[delegate-lanes ROUTE MISMATCH] A lane child did NOT run on its lane's provider/model (verified "
+              "against state.db usage). Treat its result as coming from the observed model, and tell the user if "
+              "the route mattered (cost, privacy, review independence):")]
     for v in pending:
         lines.append(f"- lane {v.get('lane')}: requested {v.get('requested')}, observed {', '.join(v.get('actual') or []) or '?'}"
                      f" (child {v.get('child_session_id')})")
@@ -229,8 +229,8 @@ def _on_pre_tool_call(tool_name: str = "", args: Any = None, session_id: str = "
                          "lane": lane_s, "session_id": session_id or None})
     logger.warning("delegate-lanes: blocked delegate_task carrying lane=%r (session %s); the model must use %s",
                    lane_s, session_id or "?", TOOL)
-    parts = [f"BLOCKED (delegate-lanes): delegate_task has no `lane` parameter. It would have ignored "
-             f"lane={lane_s!r} and run every child on the default delegation model."]
+    parts = [(f"BLOCKED (delegate-lanes): delegate_task has no `lane` parameter. It would have ignored "
+              f"lane={lane_s!r} and run every child on the default delegation model.")]
     if not _STATE.get("contract_ok"):
         parts.append(f"{TOOL} is disabled on this host right now (safety contract). Call delegate_task again "
                      "WITHOUT `lane` to use the default route on purpose.")
@@ -270,7 +270,7 @@ def _on_pre_llm_call(**kw: Any):
     return None
 
 
-def build_table(settings: Dict[str, Any], verify: str = "warn", resolver=None) -> LaneTable:
+def build_table(settings: dict[str, Any], verify: str = "warn", resolver=None) -> LaneTable:
     """verify: "warn" (default; advisory, lanes kept), "strict" (failing lanes disabled), "off"."""
     table = load_lanes(settings, audit._home())
     mode = {True: "warn", False: "off"}.get(verify, str(verify or "warn").strip().lower())  # type: ignore[arg-type]
