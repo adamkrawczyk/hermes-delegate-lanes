@@ -1,0 +1,46 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "17 4 * * 1"   # weekly: catches Hermes main moving a seam the plugin depends on
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: contract suite (hermes ${{ matrix.hermes_ref }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        hermes_ref: [v0.21.6, main]   # v0.21.6 = requires_hermes floor
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: plugin
+      - uses: actions/checkout@v4
+        with:
+          repository: NousResearch/hermes-agent
+          ref: ${{ matrix.hermes_ref }}
+          path: hermes-core
+      - uses: astral-sh/setup-uv@v6
+      - name: Install Hermes core (Python 3.14; Hermes pins its deps to 3.14)
+        run: |
+          uv venv --python 3.14 venv
+          uv pip install --python venv/bin/python -e hermes-core
+      - name: Run the contract suite against that exact core
+        env:
+          DELEGATE_LANES_PYTHON: ${{ github.workspace }}/venv/bin/python
+          DELEGATE_LANES_EXPECT_CORE: ${{ github.workspace }}/hermes-core
+        run: venv/bin/python plugin/tests/test_delegate_lanes.py
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/ruff-action@v3

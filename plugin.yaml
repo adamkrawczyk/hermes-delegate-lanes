@@ -1,0 +1,43 @@
+name: delegate-lanes
+version: "1.0.1"
+author: Adam Krawczyk
+requires_hermes: ">=0.21.6"
+homepage: https://github.com/adamkrawczyk/hermes-delegate-lanes
+manifest_version: 2
+api_version: 1
+description: >-
+  Per-lane provider/model routing for subagents (delegate_lane tool). Operator-defined lanes
+  (named `lanes` and/or a flat `models` allowlist); the model picks a lane name, never a raw model.
+  Zero core edits; re-attaches delegate_task's name-keyed contracts; audits each child's real route.
+license: MIT
+tags: [delegation, routing, subagents]
+provides_tools:
+  - delegate_lane
+provides_hooks:
+  - subagent_start
+  - subagent_stop
+  - pre_llm_call
+  - pre_tool_call
+config_schema:
+  lanes:
+    type: dict
+    default: {}
+    label: Named lanes
+    description: >-
+      name -> {provider, model, use_for, fallbacks: [{provider, model}], from_profile, base_url, api_key_env, api_mode}.
+      from_profile imports model/provider NAMES only. base_url requires api_key_env.
+  models:
+    type: list
+    default: []
+    label: Approved models
+    description: >-
+      Optional flat allowlist. Each {provider, model, name?, use_for?, fallbacks?} becomes a lane
+      (name defaults to the model slug). Use it to state explicitly which models delegation may use.
+  verify_providers:
+    type: str
+    choices: [warn, strict, "off"]
+    default: warn
+    description: >-
+      Resolve each lane's provider at load. warn = log and keep (default: on the multiplexed gateway
+      register() runs outside profile scope, so load-time resolution is unreliable; delegate_task
+      re-checks per call). strict = disable failing lanes. off = skip.

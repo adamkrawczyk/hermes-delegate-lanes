@@ -1,0 +1,23 @@
+# Merge this under the top-level `plugins:` key of ~/.hermes/config.yaml.
+# Provider names must match providers you have credentials for in Hermes.
+plugins:
+  entries:
+    delegate-lanes:
+      settings:
+        lanes:
+          scout:
+            provider: zai
+            model: glm-5.3-flash
+            use_for: cheap recon on public, non-sensitive material
+            fallbacks: [{provider: anthropic, model: claude-haiku-5-5}]
+          reviewer:
+            provider: openai-codex
+            model: gpt-6.1-sol
+            use_for: adversarial review only (expensive)
+          builder:
+            from_profile: builder    # model/provider NAMES from ~/.hermes/profiles/builder/config.yaml
+            use_for: implementation
+        models:
+          - {name: sonnet, provider: anthropic, model: claude-sonnet-5-5, use_for: drafting}
+          - {name: haiku, provider: anthropic, model: claude-haiku-5-5, use_for: fast mechanical work}
+        verify_providers: warn
